@@ -1,0 +1,139 @@
+name: online-school
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=40
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 384m
+    logging: *default-logging
+    networks: [app]
+
+  redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 96m
+    logging: *default-logging
+    networks: [app]
+
+  migrate:
+    image: migrate/migrate:v4.20.1
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../backend/migration:/migrations:ro
+    command: ["-path", "/migrations", "-database", "${DATABASE_URL}", "up"]
+    networks: [app]
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: build/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      HTTP_ADDRESS: :8080
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_ADDRESS: redis:6379
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-172.16.0.0/12}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    mem_limit: 160m
+    logging: *default-logging
+    networks: [app]
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: build/Dockerfile
+      args:
+        VITE_TELEGRAM_URL: ${VITE_TELEGRAM_URL:-https://t.me/ms_repeat}
+        VITE_WHATSAPP_URL: ${VITE_WHATSAPP_URL:-https://wa.me/79052438437}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 96m
+    logging: *default-logging
+    networks: [app]
+
+  bootstrap:
+    profiles: ["bootstrap"]
+    build:
+      context: ../backend
+      dockerfile: build/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    entrypoint: ["/usr/local/bin/bootstrap"]
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL}
+      BOOTSTRAP_LOGIN: ${BOOTSTRAP_LOGIN}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD}
+      BOOTSTRAP_FULL_NAME: ${BOOTSTRAP_FULL_NAME:-Administrator}
+      BOOTSTRAP_TIMEZONE: ${BOOTSTRAP_TIMEZONE:-Europe/Moscow}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [app]
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

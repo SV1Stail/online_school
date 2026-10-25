@@ -23,7 +23,7 @@ AGENTS.md
 CLAUDE.md
 
 report.xml
-.env
+.env*
 .env.*
 *.env
 *__debug_*
