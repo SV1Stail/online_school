@@ -1,0 +1,113 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-online_school}
+      POSTGRES_USER: ${POSTGRES_USER:-online_school}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    command:
+      - postgres
+      - -c
+      - max_connections=30
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=2MB
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 384m
+    logging: *default-logging
+
+  redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 48mb
+      - --maxmemory-policy
+      - allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 80m
+    logging: *default-logging
+
+  migrate:
+    image: migrate/migrate:v4.20.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../backend/migration:/migrations:ro
+    command:
+      - -path=/migrations
+      - -database=${DATABASE_URL:?DATABASE_URL is required}
+      - up
+    restart: "no"
+    logging: *default-logging
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: build/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      HTTP_ADDRESS: :8080
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_ADDRESS: redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_PRETTY: "false"
+      COOKIE_SECURE: "true"
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS is required}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    mem_limit: 160m
+    logging: *default-logging
+
+  bootstrap:
+    build:
+      context: ../backend
+      dockerfile: build/Dockerfile
+    entrypoint: ["/usr/local/bin/bootstrap"]
+    profiles: ["bootstrap"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      BOOTSTRAP_LOGIN: ${BOOTSTRAP_LOGIN:?BOOTSTRAP_LOGIN is required}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:?BOOTSTRAP_PASSWORD is required}
+      BOOTSTRAP_FULL_NAME: ${BOOTSTRAP_FULL_NAME:?BOOTSTRAP_FULL_NAME is required}
+      BOOTSTRAP_TIMEZONE: ${BOOTSTRAP_TIMEZONE:-Europe/Moscow}
+      LOG_PRETTY: "false"
+    logging: *default-logging
+
+volumes:
+  postgres_data:
