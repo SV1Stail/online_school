@@ -59,7 +59,7 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context) error {
 }
 
 func prefixUserColumns(alias string) string {
-	return alias + `.id, ` + alias + `.login, ` + alias + `.full_name, ` + alias + `.role, ` +
-		alias + `.timezone, ` + alias + `.active, ` + alias + `.must_change_password, ` +
+	return alias + `.id, ` + alias + `.login, ` + alias + `.full_name, ` + alias + `.subject_label, ` +
+		alias + `.role, ` + alias + `.timezone, ` + alias + `.active, ` + alias + `.must_change_password, ` +
 		alias + `.created_at, ` + alias + `.updated_at`
 }

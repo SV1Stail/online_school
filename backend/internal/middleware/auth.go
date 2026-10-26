@@ -59,9 +59,9 @@ func RequirePasswordChanged(next http.Handler) http.Handler {
 			writeUnauthorized(writer)
 			return
 		}
-		if currentUser.MustChangePassword &&
-			request.URL.Path != "/api/v1/auth/password" &&
-			request.URL.Path != "/api/v1/me" {
+		canChangePassword := request.Method == http.MethodPost && request.URL.Path == "/api/v1/auth/password"
+		canReadProfile := request.Method == http.MethodGet && request.URL.Path == "/api/v1/me"
+		if currentUser.MustChangePassword && !canChangePassword && !canReadProfile {
 			http.Error(
 				writer,
 				`{"error":{"code":"password_change_required","message":"temporary password must be changed"}}`,

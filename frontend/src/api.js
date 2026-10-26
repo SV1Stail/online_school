@@ -39,6 +39,7 @@ export const api = {
   login: (login, password) => request('/auth/login', { method: 'POST', body: { login, password } }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   me: () => request('/me'),
+  updateProfile: (payload) => request('/me', { method: 'PATCH', body: payload }),
   changePassword: (currentPassword, newPassword) => request('/auth/password', {
     method: 'POST',
     body: { currentPassword, newPassword },

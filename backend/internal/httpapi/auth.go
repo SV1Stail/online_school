@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/SV1Stail/online_school/internal/middleware"
+	"github.com/SV1Stail/online_school/internal/user"
 )
 
 type loginRequest struct {
@@ -15,6 +16,11 @@ type loginRequest struct {
 type changePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword"`
 	NewPassword     string `json:"newPassword"`
+}
+
+type updateOwnProfileRequest struct {
+	FullName     *string `json:"fullName"`
+	SubjectLabel *string `json:"subjectLabel"`
 }
 
 func (a *API) login(writer http.ResponseWriter, request *http.Request) {
@@ -59,6 +65,34 @@ func (a *API) logout(writer http.ResponseWriter, request *http.Request) {
 
 func (a *API) me(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, currentUser(request))
+}
+
+func (a *API) updateOwnProfile(writer http.ResponseWriter, request *http.Request) {
+	var input updateOwnProfileRequest
+	if err := decodeJSON(request, &input); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_json", "invalid request body", requestID(request))
+		return
+	}
+	current := currentUser(request)
+	if input.FullName == nil && input.SubjectLabel == nil {
+		writeError(writer, http.StatusBadRequest, "invalid_input", "request contains invalid data", requestID(request))
+		return
+	}
+	if input.SubjectLabel != nil && current.Role != user.RoleTeacher {
+		writeError(writer, http.StatusForbidden, "forbidden", "operation is forbidden", requestID(request))
+		return
+	}
+	updated, err := a.users.Update(
+		request.Context(),
+		current.ID,
+		current.ID,
+		user.UpdateInput{FullName: input.FullName, SubjectLabel: input.SubjectLabel},
+	)
+	if err != nil {
+		a.handleError(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, updated)
 }
 
 func (a *API) changePassword(writer http.ResponseWriter, request *http.Request) {

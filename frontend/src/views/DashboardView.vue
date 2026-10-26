@@ -20,6 +20,7 @@ const realUser = ref(null)
 const calendarTeacherId = ref('')
 const calendarAnchor = ref('')
 const calendarScroll = ref(null)
+const profileSaving = ref(false)
 
 const HOUR_HEIGHT = 56
 const CALENDAR_START_HOUR = 0
@@ -35,13 +36,14 @@ const localDate = (offsetDays = 0) => {
 const bookingForm = ref({ teacherId: '', duration: 60, date: localDate(3), slot: '' })
 const availabilityForm = ref({ teacherId: '', date: localDate(3), from: '15:00', to: '21:00', durations: [30, 60] })
 const userForm = ref({ fullName: '', login: '', password: '', role: 'student', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+const profileForm = ref({ fullName: '', subjectLabel: '' })
 
 const currentUser = computed(() => realUser.value)
 const role = computed(() => currentUser.value?.role || 'student')
 const firstName = computed(() => currentUser.value?.fullName?.split(' ')[0] || 'пользователь')
 
 const navByRole = computed(() => {
-  const common = [{ id: 'home', label: 'Главная', icon: 'home' }, { id: 'schedule', label: 'Расписание', icon: 'calendar' }]
+  const common = [{ id: 'home', label: 'Главная', icon: 'home' }, { id: 'schedule', label: 'Расписание', icon: 'calendar' }, { id: 'profile', label: 'Профиль', icon: 'user' }]
   if (role.value === 'student') return [...common, { id: 'book', label: 'Записаться', icon: 'plus' }]
   if (role.value === 'teacher') return [...common, { id: 'availability', label: 'Свободное время', icon: 'clock' }, { id: 'links', label: 'Конференции', icon: 'link' }]
   return [...common, { id: 'users', label: 'Пользователи', icon: 'users' }, { id: 'availability', label: 'Свободное время', icon: 'clock' }, { id: 'links', label: 'Конференции', icon: 'link' }]
@@ -107,6 +109,7 @@ function notify(message) {
 }
 
 function teacherName(id) { return teachers.value.find(item => item.id === id)?.fullName || 'Преподаватель' }
+function teacherSubject(id) { return teachers.value.find(item => item.id === id)?.subjectLabel || 'Предмет не указан' }
 function studentName(id) { return students.value.find(item => item.id === id)?.fullName || 'Ученик' }
 function formatDate(value, options = {}) {
   return new Intl.DateTimeFormat('ru-RU', { timeZone: currentUser.value?.timezone || 'Europe/Moscow', ...options }).format(new Date(value))
@@ -205,6 +208,8 @@ async function load() {
   loading.value = true
   try {
     realUser.value = await api.me()
+    profileForm.value.fullName = realUser.value.fullName
+    profileForm.value.subjectLabel = realUser.value.subjectLabel || ''
     const [teacherResponse, bookingResponse] = await Promise.all([api.teachers(), api.bookings()])
     teachers.value = teacherResponse.items || []
     bookings.value = bookingResponse.items || []
@@ -292,6 +297,32 @@ async function createUser() {
   catch { notify('Не удалось создать пользователя') }
 }
 
+async function saveProfile() {
+  const fullName = profileForm.value.fullName.trim()
+  const subjectLabel = profileForm.value.subjectLabel.trim()
+  if (!fullName || fullName.length > 200) return notify('Введите имя длиной от 1 до 200 символов')
+  if (role.value === 'teacher' && subjectLabel.length > 100) return notify('Подпись предмета не должна превышать 100 символов')
+  if (fullName === currentUser.value.fullName && (role.value !== 'teacher' || subjectLabel === currentUser.value.subjectLabel)) return notify('Данные не изменились')
+  profileSaving.value = true
+  try {
+    const payload = { fullName }
+    if (role.value === 'teacher') payload.subjectLabel = subjectLabel
+    const updated = await api.updateProfile(payload)
+    realUser.value = updated
+    profileForm.value.fullName = updated.fullName
+    profileForm.value.subjectLabel = updated.subjectLabel || ''
+    for (const collection of [teachers.value, students.value, users.value]) {
+      const item = collection.find(candidate => candidate.id === updated.id)
+      if (item) Object.assign(item, updated)
+    }
+    notify('Профиль сохранён')
+  } catch (err) {
+    notify(err.code === 'invalid_input' ? 'Проверьте имя и подпись предмета' : 'Не удалось сохранить профиль')
+  } finally {
+    profileSaving.value = false
+  }
+}
+
 async function logout() {
   await api.logout().catch(() => {})
   router.push('/')
@@ -349,7 +380,7 @@ onMounted(load)
               <template v-if="upcomingBookings.length">
                 <p class="lesson-date">{{ formatDate(upcomingBookings[0].startsAt, { weekday: 'long', day: 'numeric', month: 'long' }) }}</p>
                 <h2>{{ formatDate(upcomingBookings[0].startsAt, { hour: '2-digit', minute: '2-digit' }) }} <small>· {{ upcomingBookings[0].durationMinutes }} минут</small></h2>
-                <p>{{ role === 'student' ? teacherName(upcomingBookings[0].teacherId) : studentName(upcomingBookings[0].studentId) }} · математика</p>
+                <p>{{ role === 'student' ? teacherName(upcomingBookings[0].teacherId) : studentName(upcomingBookings[0].studentId) }} · {{ teacherSubject(upcomingBookings[0].teacherId) }}</p>
                 <div class="lesson-actions"><button class="button button--white"><AppIcon name="video" :size="18" /> Открыть ссылки</button><span class="status-pill" :class="`status-${upcomingBookings[0].status}`">{{ statusLabel(upcomingBookings[0].status) }}</span></div>
               </template>
               <template v-else><h2>Пока занятий нет</h2><p>Свободное место для новых целей.</p></template>
@@ -462,7 +493,7 @@ onMounted(load)
           <form class="booking-layout" @submit.prevent="submitBooking">
             <div class="form-panel soft-panel">
               <div class="form-step"><span>1</span><div><strong>Преподаватель</strong><p>К кому хотите записаться?</p></div></div>
-              <div class="teacher-select-grid"><button v-for="teacher in teachers" :key="teacher.id" type="button" :class="{ active: bookingForm.teacherId === teacher.id }" @click="bookingForm.teacherId = teacher.id"><span class="user-avatar">{{ teacher.fullName[0] }}</span><span><strong>{{ teacher.fullName }}</strong><small>{{ teacher.subtitle || 'Математика · физика' }}</small></span><AppIcon v-if="bookingForm.teacherId === teacher.id" name="check" /></button></div>
+              <div class="teacher-select-grid"><button v-for="teacher in teachers" :key="teacher.id" type="button" :class="{ active: bookingForm.teacherId === teacher.id }" @click="bookingForm.teacherId = teacher.id"><span class="user-avatar">{{ teacher.fullName[0] }}</span><span><strong>{{ teacher.fullName }}</strong><small>{{ teacher.subjectLabel || 'Предмет не указан' }}</small></span><AppIcon v-if="bookingForm.teacherId === teacher.id" name="check" /></button></div>
               <div class="form-step"><span>2</span><div><strong>Продолжительность</strong><p>Сколько времени понадобится?</p></div></div>
               <div class="choice-row"><button v-for="duration in [15,30,45,60]" :key="duration" type="button" :class="{ active: bookingForm.duration === duration }" @click="bookingForm.duration = duration">{{ duration }} мин</button></div>
               <div class="form-step"><span>3</span><div><strong>Дата и время</strong><p>Показываем только свободные варианты</p></div></div>
@@ -476,6 +507,18 @@ onMounted(load)
               <button class="button button--ink button--full" type="submit">Отправить заявку <AppIcon name="arrow" :size="18" /></button>
               <small>Преподаватель подтвердит запись вручную.</small>
             </aside>
+          </form>
+        </template>
+
+        <template v-else-if="activePage === 'profile'">
+          <section class="page-title"><div><p class="section-kicker">Личные данные</p><h2>Профиль</h2></div></section>
+          <form class="settings-card profile-card soft-panel" @submit.prevent="saveProfile">
+            <div class="settings-copy"><div class="round-icon"><AppIcon name="user" :size="28" /></div><h3>Как к вам обращаться</h3><p>Это имя отображается в личном кабинете, расписании и списках участников занятий.</p></div>
+            <div class="settings-fields">
+              <label class="field-label">Имя и фамилия<input v-model="profileForm.fullName" type="text" required maxlength="200" autocomplete="name" placeholder="Введите имя и фамилию" /></label>
+              <label v-if="role === 'teacher'" class="field-label">Подпись предмета<input v-model="profileForm.subjectLabel" type="text" maxlength="100" placeholder="Например, Математика · физика" /><small class="field-hint">Эту подпись увидят ученики при выборе преподавателя.</small></label>
+              <button class="button button--ink" type="submit" :disabled="profileSaving">{{ profileSaving ? 'Сохраняем…' : 'Сохранить профиль' }}</button>
+            </div>
           </form>
         </template>
 

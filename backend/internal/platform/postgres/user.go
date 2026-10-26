@@ -11,7 +11,7 @@ import (
 	"github.com/SV1Stail/online_school/internal/user"
 )
 
-const userColumns = `id, login, full_name, role, timezone, active, must_change_password, created_at, updated_at`
+const userColumns = `id, login, full_name, subject_label, role, timezone, active, must_change_password, created_at, updated_at`
 
 func (s *Store) FindByLogin(ctx context.Context, login string) (*user.Credentials, error) {
 	row := s.pool.QueryRow(ctx, `
@@ -126,13 +126,15 @@ func (s *Store) UpdateUser(ctx context.Context, id string, input user.UpdateInpu
 	row := s.pool.QueryRow(ctx, `
 		UPDATE users
 		SET full_name = COALESCE($2, full_name),
-			timezone = COALESCE($3, timezone),
-			active = COALESCE($4, active),
+			subject_label = COALESCE($3, subject_label),
+			timezone = COALESCE($4, timezone),
+			active = COALESCE($5, active),
 			updated_at = now()
 		WHERE id = $1
 		RETURNING `+userColumns,
 		id,
 		input.FullName,
+		input.SubjectLabel,
 		input.Timezone,
 		input.Active,
 	)
@@ -170,6 +172,7 @@ func scanUser(row rowScanner, destination *user.User) error {
 		&destination.ID,
 		&destination.Login,
 		&destination.FullName,
+		&destination.SubjectLabel,
 		&destination.Role,
 		&destination.Timezone,
 		&destination.Active,
@@ -184,6 +187,7 @@ func scanCredentials(row rowScanner, destination *user.Credentials) error {
 		&destination.ID,
 		&destination.Login,
 		&destination.FullName,
+		&destination.SubjectLabel,
 		&destination.Role,
 		&destination.Timezone,
 		&destination.Active,

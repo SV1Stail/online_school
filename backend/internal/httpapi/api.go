@@ -69,6 +69,7 @@ func (a *API) Handler(cfg *config.Config) (http.Handler, error) {
 	protected := http.NewServeMux()
 	protected.HandleFunc("POST /api/v1/auth/password", a.changePassword)
 	protected.HandleFunc("GET /api/v1/me", a.me)
+	protected.HandleFunc("PATCH /api/v1/me", a.updateOwnProfile)
 	protected.HandleFunc("GET /api/v1/teachers", a.listTeachers)
 	protected.HandleFunc("GET /api/v1/teachers/{teacherID}/availability", a.listAvailability)
 	protected.HandleFunc("GET /api/v1/teachers/{teacherID}/slots", a.listAvailableSlots)

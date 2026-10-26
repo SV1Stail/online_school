@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/SV1Stail/online_school/internal/security"
 )
@@ -87,6 +88,13 @@ func (s *Service) Update(ctx context.Context, actorID, id string, input UpdateIn
 			return nil, ErrInvalidInput
 		}
 		input.FullName = &trimmed
+	}
+	if input.SubjectLabel != nil {
+		trimmed := strings.TrimSpace(*input.SubjectLabel)
+		if utf8.RuneCountInString(trimmed) > 100 {
+			return nil, ErrInvalidInput
+		}
+		input.SubjectLabel = &trimmed
 	}
 	if input.Timezone != nil {
 		trimmed := strings.TrimSpace(*input.Timezone)

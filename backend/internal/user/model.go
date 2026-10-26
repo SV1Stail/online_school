@@ -21,6 +21,7 @@ type User struct {
 	ID                 string    `json:"id"`
 	Login              string    `json:"login"`
 	FullName           string    `json:"fullName"`
+	SubjectLabel       string    `json:"subjectLabel"`
 	Role               Role      `json:"role"`
 	Timezone           string    `json:"timezone"`
 	Active             bool      `json:"active"`
@@ -43,9 +44,10 @@ type CreateInput struct {
 }
 
 type UpdateInput struct {
-	FullName *string `json:"fullName"`
-	Timezone *string `json:"timezone"`
-	Active   *bool   `json:"active"`
+	FullName     *string `json:"fullName"`
+	SubjectLabel *string `json:"subjectLabel"`
+	Timezone     *string `json:"timezone"`
+	Active       *bool   `json:"active"`
 }
 
 type Repository interface {
