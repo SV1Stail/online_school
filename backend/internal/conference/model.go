@@ -29,7 +29,7 @@ func (p Provider) Valid() bool {
 
 type Link struct {
 	ID           string    `json:"id"`
-	TeacherID    string    `json:"teacherId"`
+	StudentID    string    `json:"studentId"`
 	Provider     Provider  `json:"provider"`
 	Title        string    `json:"title"`
 	URL          string    `json:"url"`
@@ -40,7 +40,7 @@ type Link struct {
 }
 
 type CreateInput struct {
-	TeacherID    string   `json:"teacherId"`
+	StudentID    string   `json:"studentId"`
 	Provider     Provider `json:"provider"`
 	Title        string   `json:"title"`
 	URL          string   `json:"url"`
@@ -56,11 +56,11 @@ type UpdateInput struct {
 }
 
 type Repository interface {
-	ListForTeacher(ctx context.Context, teacherID string, includeInactive bool) ([]Link, error)
+	ListForStudent(ctx context.Context, studentID string) ([]Link, error)
 	ListForBooking(ctx context.Context, bookingID string, actor *user.User) ([]Link, error)
 	CreateConferenceLink(ctx context.Context, input CreateInput) (*Link, error)
-	UpdateConferenceLink(ctx context.Context, id, teacherID string, moderator bool, input UpdateInput) (*Link, error)
-	DeleteConferenceLink(ctx context.Context, id, teacherID string, moderator bool) error
+	UpdateConferenceLink(ctx context.Context, id, studentID string, input UpdateInput) (*Link, error)
+	DeleteConferenceLink(ctx context.Context, id, studentID string) error
 }
 
 type Auditor interface {

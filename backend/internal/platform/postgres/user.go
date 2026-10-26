@@ -111,8 +111,8 @@ func (s *Store) CreateUser(ctx context.Context, input user.CreateRecord) (*user.
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
 
-	if input.Role == user.RoleTeacher {
-		if err := createDefaultConferenceLinks(ctx, tx, created.ID); err != nil {
+	if input.Role == user.RoleStudent {
+		if err := createDefaultStudentConferenceLinks(ctx, tx, created.ID); err != nil {
 			return nil, err
 		}
 	}
@@ -198,10 +198,10 @@ func scanCredentials(row rowScanner, destination *user.Credentials) error {
 	)
 }
 
-func createDefaultConferenceLinks(ctx context.Context, tx pgx.Tx, teacherID string) error {
+func createDefaultStudentConferenceLinks(ctx context.Context, tx pgx.Tx, studentID string) error {
 	_, err := tx.Exec(ctx, `
 		WITH inserted AS (
-			INSERT INTO teacher_conference_links (teacher_id, provider, title, display_order)
+			INSERT INTO student_conference_links (student_id, provider, title, display_order)
 			VALUES
 				($1, 'teams', 'Microsoft Teams', 10),
 				($1, 'zoom', 'Zoom', 20),
@@ -210,11 +210,11 @@ func createDefaultConferenceLinks(ctx context.Context, tx pgx.Tx, teacherID stri
 				($1, 'sber_jazz', 'СберJazz', 50)
 			RETURNING id, title, url, active, display_order, created_at
 		)
-		INSERT INTO conference_link_versions (link_id, title, url, active, display_order, valid_from)
+		INSERT INTO student_conference_link_versions (link_id, title, url, active, display_order, valid_from)
 		SELECT id, title, url, active, display_order, created_at FROM inserted
-	`, teacherID)
+	`, studentID)
 	if err != nil {
-		return fmt.Errorf("create default conference links: %w", err)
+		return fmt.Errorf("create default student conference links: %w", err)
 	}
 	return nil
 }

@@ -18,9 +18,14 @@ const links = ref([])
 const users = ref([])
 const realUser = ref(null)
 const calendarTeacherId = ref('')
+const linkStudentId = ref('')
 const calendarAnchor = ref('')
 const calendarScroll = ref(null)
 const profileSaving = ref(false)
+const lessonLinks = ref([])
+const lessonLinksBookingId = ref('')
+const lessonLinksOpen = ref(false)
+const lessonLinksLoading = ref(false)
 
 const HOUR_HEIGHT = 56
 const CALENDAR_START_HOUR = 0
@@ -204,6 +209,27 @@ function statusLabel(status) {
   return ({ pending: 'Ожидает подтверждения', confirmed: 'Подтверждено', rejected: 'Отклонено', cancelled_by_student: 'Отменено', cancelled_by_staff: 'Отменено' })[status] || status
 }
 
+async function toggleLessonLinks(booking) {
+  if (lessonLinksOpen.value && lessonLinksBookingId.value === booking.id) {
+    lessonLinksOpen.value = false
+    return
+  }
+
+  lessonLinksBookingId.value = booking.id
+  lessonLinks.value = []
+  lessonLinksOpen.value = true
+  lessonLinksLoading.value = true
+  try {
+    const response = await api.bookingConferenceLinks(booking.id)
+    if (lessonLinksBookingId.value === booking.id) lessonLinks.value = response.items || []
+  } catch {
+    if (lessonLinksBookingId.value === booking.id) lessonLinks.value = []
+    notify('Не удалось загрузить ссылки')
+  } finally {
+    if (lessonLinksBookingId.value === booking.id) lessonLinksLoading.value = false
+  }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -217,10 +243,12 @@ async function load() {
     calendarAnchor.value = formatISODate(new Date())
     calendarTeacherId.value = realUser.value.role === 'teacher' ? realUser.value.id : teachers.value[0]?.id || ''
     availabilityForm.value.teacherId = calendarTeacherId.value
-    if (realUser.value.role !== 'student') students.value = (await api.students()).items || []
+    if (realUser.value.role !== 'student') {
+      students.value = (await api.students()).items || []
+      linkStudentId.value = students.value[0]?.id || ''
+      await loadStudentLinks()
+    }
     if (realUser.value.role === 'moderator') users.value = (await api.users()).items || []
-    const linkTeacherId = realUser.value.role === 'teacher' ? realUser.value.id : teachers.value[0]?.id
-    if (linkTeacherId && realUser.value.role !== 'student') links.value = (await api.conferenceLinks(linkTeacherId)).items || []
   } catch (err) {
     if (err.status === 401) router.replace('/login')
     else notify('Не удалось загрузить данные')
@@ -245,6 +273,17 @@ async function loadCalendarAvailability() {
   }
   try { availability.value = (await api.availability(calendarTeacherId.value)).items || [] }
   catch { notify('Не удалось загрузить свободные интервалы') }
+}
+
+async function loadStudentLinks() {
+  links.value = []
+  const studentId = linkStudentId.value
+  if (!studentId) return
+  try {
+    const response = await api.studentConferenceLinks(studentId)
+    if (linkStudentId.value === studentId) links.value = response.items || []
+  }
+  catch { notify('Не удалось загрузить ссылки ученика') }
 }
 
 async function submitBooking() {
@@ -284,16 +323,31 @@ async function addAvailability() {
 }
 
 async function saveLinks() {
-  const teacherId = role.value === 'teacher' ? currentUser.value.id : calendarTeacherId.value || teachers.value[0]?.id
+  const studentId = linkStudentId.value
+  if (!studentId) return notify('Выберите ученика')
+  for (const item of links.value) {
+    item.url = item.url.trim()
+    item.active = item.active && Boolean(item.url)
+  }
   try {
-    await Promise.all(links.value.map(item => api.updateConferenceLink(teacherId, item.id, { url: item.url, active: item.active && Boolean(item.url) })))
-    notify('Ссылки сохранены')
-  } catch { notify('Не удалось сохранить ссылки') }
+    await Promise.all(links.value.map(item => api.updateConferenceLink(studentId, item.id, { url: item.url, active: item.active })))
+    notify(`Ссылки для ${studentName(studentId)} сохранены`)
+  } catch (err) {
+    notify(err.code === 'conflict' ? 'Эта ссылка уже закреплена за другим учеником' : 'Не удалось сохранить ссылки')
+  }
 }
 
 async function createUser() {
   if (!userForm.value.fullName || !userForm.value.login || !userForm.value.password) return notify('Заполните все поля')
-  try { users.value.unshift(await api.createUser(userForm.value)); notify('Пользователь создан') }
+  try {
+    const created = await api.createUser(userForm.value)
+    users.value.unshift(created)
+    if (created.role === 'student') {
+      students.value.push(created)
+      if (!linkStudentId.value) linkStudentId.value = created.id
+    }
+    notify('Пользователь создан')
+  }
   catch { notify('Не удалось создать пользователя') }
 }
 
@@ -342,6 +396,9 @@ watch(calendarTeacherId, () => {
   if (role.value === 'moderator') availabilityForm.value.teacherId = calendarTeacherId.value
   loadCalendarAvailability()
 })
+watch(linkStudentId, () => {
+  if (!loading.value) loadStudentLinks()
+})
 onMounted(load)
 </script>
 
@@ -381,7 +438,7 @@ onMounted(load)
                 <p class="lesson-date">{{ formatDate(upcomingBookings[0].startsAt, { weekday: 'long', day: 'numeric', month: 'long' }) }}</p>
                 <h2>{{ formatDate(upcomingBookings[0].startsAt, { hour: '2-digit', minute: '2-digit' }) }} <small>· {{ upcomingBookings[0].durationMinutes }} минут</small></h2>
                 <p>{{ role === 'student' ? teacherName(upcomingBookings[0].teacherId) : studentName(upcomingBookings[0].studentId) }} · {{ teacherSubject(upcomingBookings[0].teacherId) }}</p>
-                <div class="lesson-actions"><button class="button button--white"><AppIcon name="video" :size="18" /> Открыть ссылки</button><span class="status-pill" :class="`status-${upcomingBookings[0].status}`">{{ statusLabel(upcomingBookings[0].status) }}</span></div>
+                <div class="lesson-actions"><div class="lesson-links-control"><button class="button button--white" type="button" :aria-expanded="lessonLinksOpen && lessonLinksBookingId === upcomingBookings[0].id" aria-controls="lesson-links-menu" @click="toggleLessonLinks(upcomingBookings[0])"><AppIcon name="video" :size="18" /> Открыть ссылки</button><div v-if="lessonLinksOpen && lessonLinksBookingId === upcomingBookings[0].id" id="lesson-links-menu" class="lesson-links-menu"><p v-if="lessonLinksLoading" class="lesson-links-empty">Загружаем ссылки…</p><p v-else-if="!lessonLinks.length" class="lesson-links-empty">список пуст</p><template v-else><p v-for="item in lessonLinks" :key="item.id"><span>{{ item.title }}:</span> <a :href="item.url" target="_blank" rel="noopener noreferrer">{{ item.url }}</a></p></template></div></div><span class="status-pill" :class="`status-${upcomingBookings[0].status}`">{{ statusLabel(upcomingBookings[0].status) }}</span></div>
               </template>
               <template v-else><h2>Пока занятий нет</h2><p>Свободное место для новых целей.</p></template>
               <span class="next-formula">a² + b² = c²</span>
@@ -531,13 +588,15 @@ onMounted(load)
         </template>
 
         <template v-else-if="activePage === 'links'">
-          <section class="page-title"><div><p class="section-kicker">Онлайн-занятия</p><h2>Ссылки на конференции</h2></div><button class="button button--ink" @click="saveLinks">Сохранить изменения</button></section>
-          <div class="link-list">
+          <section class="page-title"><div><p class="section-kicker">Онлайн-занятия</p><h2>Ссылки учеников</h2></div><div class="link-page-actions"><label class="link-student-filter"><span>Ученик</span><select v-model="linkStudentId"><option v-for="student in students" :key="student.id" :value="student.id">{{ student.fullName }}</option></select></label><button class="button button--ink" :disabled="!linkStudentId" @click="saveLinks">Сохранить изменения</button></div></section>
+          <p v-if="linkStudentId" class="links-description">Ссылки закреплены за аккаунтом {{ studentName(linkStudentId) }} и будут доступны на подтверждённых занятиях этого ученика.</p>
+          <p v-if="!students.length" class="empty-slots">Сначала создайте аккаунт ученика.</p>
+          <div v-else class="link-list">
             <article v-for="item in links" :key="item.id" class="link-row soft-panel">
               <div class="provider-mark">{{ item.title.slice(0, 1) }}</div><div class="link-fields"><label>{{ item.title }}<input v-model="item.url" type="url" placeholder="https://…" /></label></div><label class="toggle"><input v-model="item.active" type="checkbox" :disabled="!item.url" /><span></span><small>{{ item.active ? 'Активна' : 'Скрыта' }}</small></label>
             </article>
           </div>
-          <button class="add-dashed" @click="notify('Добавление своего сервиса откроется в форме')"><AppIcon name="plus" /> Добавить свой сервис</button>
+          <button v-if="linkStudentId" class="add-dashed" @click="notify('Добавление своего сервиса откроется в форме')"><AppIcon name="plus" /> Добавить свой сервис</button>
         </template>
 
         <template v-else-if="activePage === 'users'">

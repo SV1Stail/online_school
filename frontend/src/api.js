@@ -47,6 +47,7 @@ export const api = {
   teachers: () => request('/teachers'),
   students: () => request('/students'),
   bookings: () => request(`/bookings${period()}`),
+  bookingConferenceLinks: (bookingId) => request(`/bookings/${bookingId}/conference-links`),
   availability: (teacherId) => request(`/teachers/${teacherId}/availability${period()}`),
   slots: (teacherId) => request(`/teachers/${teacherId}/slots${period(0, 30)}`),
   createBooking: (payload) => request('/bookings', {
@@ -56,13 +57,13 @@ export const api = {
   }),
   bookingAction: (id, action) => request(`/bookings/${id}/${action}`, { method: 'POST' }),
   createAvailability: (payload) => request('/availability', { method: 'POST', body: payload }),
-  conferenceLinks: (teacherId) => request(`/teachers/${teacherId}/conference-links`),
-  updateConferenceLink: (teacherId, linkId, payload) => request(
-    `/teachers/${teacherId}/conference-links/${linkId}`,
+  studentConferenceLinks: (studentId) => request(`/students/${studentId}/conference-links`),
+  updateConferenceLink: (studentId, linkId, payload) => request(
+    `/students/${studentId}/conference-links/${linkId}`,
     { method: 'PATCH', body: payload },
   ),
-  createConferenceLink: (teacherId, payload) => request(
-    `/teachers/${teacherId}/conference-links`,
+  createConferenceLink: (studentId, payload) => request(
+    `/students/${studentId}/conference-links`,
     { method: 'POST', body: payload },
   ),
   users: () => request('/admin/users'),

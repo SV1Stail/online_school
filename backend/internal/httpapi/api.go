@@ -73,7 +73,6 @@ func (a *API) Handler(cfg *config.Config) (http.Handler, error) {
 	protected.HandleFunc("GET /api/v1/teachers", a.listTeachers)
 	protected.HandleFunc("GET /api/v1/teachers/{teacherID}/availability", a.listAvailability)
 	protected.HandleFunc("GET /api/v1/teachers/{teacherID}/slots", a.listAvailableSlots)
-	protected.HandleFunc("GET /api/v1/teachers/{teacherID}/conference-links", a.listTeacherConferenceLinks)
 	protected.HandleFunc("GET /api/v1/bookings", a.listBookings)
 	protected.HandleFunc("POST /api/v1/bookings", a.createBooking)
 	protected.HandleFunc("POST /api/v1/bookings/{bookingID}/cancel", a.cancelBooking)
@@ -81,13 +80,14 @@ func (a *API) Handler(cfg *config.Config) (http.Handler, error) {
 
 	staffOnly := middleware.RequireRoles(user.RoleTeacher, user.RoleModerator)
 	protected.Handle("GET /api/v1/students", staffOnly(http.HandlerFunc(a.listStudents)))
+	protected.Handle("GET /api/v1/students/{studentID}/conference-links", staffOnly(http.HandlerFunc(a.listStudentConferenceLinks)))
 	protected.Handle("POST /api/v1/availability", staffOnly(http.HandlerFunc(a.createAvailability)))
 	protected.Handle("DELETE /api/v1/availability/{availabilityID}", staffOnly(http.HandlerFunc(a.deleteAvailability)))
 	protected.Handle("POST /api/v1/bookings/{bookingID}/confirm", staffOnly(http.HandlerFunc(a.confirmBooking)))
 	protected.Handle("POST /api/v1/bookings/{bookingID}/reject", staffOnly(http.HandlerFunc(a.rejectBooking)))
-	protected.Handle("POST /api/v1/teachers/{teacherID}/conference-links", staffOnly(http.HandlerFunc(a.createConferenceLink)))
-	protected.Handle("PATCH /api/v1/teachers/{teacherID}/conference-links/{linkID}", staffOnly(http.HandlerFunc(a.updateConferenceLink)))
-	protected.Handle("DELETE /api/v1/teachers/{teacherID}/conference-links/{linkID}", staffOnly(http.HandlerFunc(a.deleteConferenceLink)))
+	protected.Handle("POST /api/v1/students/{studentID}/conference-links", staffOnly(http.HandlerFunc(a.createConferenceLink)))
+	protected.Handle("PATCH /api/v1/students/{studentID}/conference-links/{linkID}", staffOnly(http.HandlerFunc(a.updateConferenceLink)))
+	protected.Handle("DELETE /api/v1/students/{studentID}/conference-links/{linkID}", staffOnly(http.HandlerFunc(a.deleteConferenceLink)))
 
 	admin := http.NewServeMux()
 	admin.HandleFunc("GET /api/v1/admin/users", a.listUsers)
@@ -159,7 +159,7 @@ func (a *API) handleError(writer http.ResponseWriter, request *http.Request, err
 		status, code, message = http.StatusUnauthorized, "unauthorized", "authentication required"
 	case errors.Is(err, user.ErrNotFound), errors.Is(err, schedule.ErrNotFound), errors.Is(err, conference.ErrNotFound):
 		status, code, message = http.StatusNotFound, "not_found", "resource not found"
-	case errors.Is(err, user.ErrLoginConflict), errors.Is(err, schedule.ErrConflict):
+	case errors.Is(err, user.ErrLoginConflict), errors.Is(err, schedule.ErrConflict), errors.Is(err, conference.ErrConflict):
 		status, code, message = http.StatusConflict, "conflict", "resource conflicts with existing data"
 	case errors.Is(err, schedule.ErrForbidden), errors.Is(err, conference.ErrForbidden):
 		status, code, message = http.StatusForbidden, "forbidden", "operation is forbidden"

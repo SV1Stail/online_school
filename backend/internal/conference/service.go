@@ -13,6 +13,7 @@ var (
 	ErrNotFound     = errors.New("conference link not found")
 	ErrForbidden    = errors.New("conference action is forbidden")
 	ErrInvalidInput = errors.New("invalid conference link")
+	ErrConflict     = errors.New("conference link already belongs to another student")
 )
 
 type Service struct {
@@ -24,12 +25,9 @@ func NewService(repository Repository, auditor Auditor) *Service {
 	return &Service{repository: repository, auditor: auditor}
 }
 
-func (s *Service) ListForTeacher(ctx context.Context, actor *user.User, teacherID string) ([]Link, error) {
-	if actor.Role == user.RoleModerator {
-		return s.repository.ListForTeacher(ctx, teacherID, true)
-	}
-	if actor.Role == user.RoleTeacher && actor.ID == teacherID {
-		return s.repository.ListForTeacher(ctx, teacherID, true)
+func (s *Service) ListForStudent(ctx context.Context, actor *user.User, studentID string) ([]Link, error) {
+	if actor.Role == user.RoleModerator || actor.Role == user.RoleTeacher {
+		return s.repository.ListForStudent(ctx, studentID)
 	}
 	return nil, ErrForbidden
 }
@@ -39,9 +37,7 @@ func (s *Service) ListForBooking(ctx context.Context, actor *user.User, bookingI
 }
 
 func (s *Service) Create(ctx context.Context, actor *user.User, input CreateInput) (*Link, error) {
-	if actor.Role == user.RoleTeacher {
-		input.TeacherID = actor.ID
-	} else if actor.Role != user.RoleModerator {
+	if actor.Role != user.RoleTeacher && actor.Role != user.RoleModerator {
 		return nil, ErrForbidden
 	}
 	if input.Provider != ProviderCustom {
@@ -63,18 +59,16 @@ func (s *Service) Create(ctx context.Context, actor *user.User, input CreateInpu
 func (s *Service) Update(
 	ctx context.Context,
 	actor *user.User,
-	id, teacherID string,
+	id, studentID string,
 	input UpdateInput,
 ) (*Link, error) {
-	if actor.Role == user.RoleTeacher {
-		teacherID = actor.ID
-	} else if actor.Role != user.RoleModerator {
+	if actor.Role != user.RoleTeacher && actor.Role != user.RoleModerator {
 		return nil, ErrForbidden
 	}
 	if err := normalizeAndValidateUpdate(&input); err != nil {
 		return nil, err
 	}
-	updated, err := s.repository.UpdateConferenceLink(ctx, id, teacherID, actor.Role == user.RoleModerator, input)
+	updated, err := s.repository.UpdateConferenceLink(ctx, id, studentID, input)
 	if err != nil {
 		return nil, err
 	}
@@ -84,13 +78,11 @@ func (s *Service) Update(
 	return updated, nil
 }
 
-func (s *Service) Delete(ctx context.Context, actor *user.User, id, teacherID string) error {
-	if actor.Role == user.RoleTeacher {
-		teacherID = actor.ID
-	} else if actor.Role != user.RoleModerator {
+func (s *Service) Delete(ctx context.Context, actor *user.User, id, studentID string) error {
+	if actor.Role != user.RoleTeacher && actor.Role != user.RoleModerator {
 		return ErrForbidden
 	}
-	if err := s.repository.DeleteConferenceLink(ctx, id, teacherID, actor.Role == user.RoleModerator); err != nil {
+	if err := s.repository.DeleteConferenceLink(ctx, id, studentID); err != nil {
 		return err
 	}
 	return s.auditor.Write(ctx, actor.ID, "conference_link.deleted", "conference_link", id, nil)
@@ -99,7 +91,7 @@ func (s *Service) Delete(ctx context.Context, actor *user.User, id, teacherID st
 func normalizeAndValidateCreate(input *CreateInput) error {
 	input.Title = strings.TrimSpace(input.Title)
 	input.URL = strings.TrimSpace(input.URL)
-	if input.TeacherID == "" || input.Title == "" || len(input.Title) > 100 || input.DisplayOrder < 0 {
+	if input.StudentID == "" || input.Title == "" || len(input.Title) > 100 || input.DisplayOrder < 0 {
 		return ErrInvalidInput
 	}
 	return validateURL(input.URL, input.Active)

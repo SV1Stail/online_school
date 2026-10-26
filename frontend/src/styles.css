@@ -172,6 +172,14 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .next-lesson-card > p:not(.lesson-date) { margin: 8px 0 0; color: #d8efff; font-size: 12px; }
 .lesson-actions { position: absolute; z-index: 2; left: 34px; right: 34px; bottom: 28px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .lesson-actions .button { min-height: 42px; padding-inline: 15px; }
+.lesson-links-control { position: relative; }
+.lesson-links-menu { position: absolute; z-index: 4; left: 0; bottom: calc(100% + 10px); width: min(520px, calc(100vw - 84px)); max-height: 170px; padding: 13px 15px; overflow-y: auto; border: 1px solid rgba(7,56,111,.12); border-radius: 15px; color: var(--ink); background: white; box-shadow: 0 14px 34px rgba(2,35,67,.2); }
+.lesson-links-menu p { margin: 0; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.lesson-links-menu p + p { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.lesson-links-menu span { font-weight: 700; }
+.lesson-links-menu a { color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; }
+.lesson-links-menu a:hover { color: var(--blue); }
+.lesson-links-menu .lesson-links-empty { color: var(--muted); }
 .next-formula { position: absolute; top: 22px; right: 25px; color: rgba(255,255,255,.1); font: 700 55px 'Playfair Display', serif; }
 .soft-panel { border-radius: 24px; }
 .week-card { min-height: 285px; padding: 28px; display: flex; flex-direction: column; }
@@ -224,7 +232,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .calendar-canvas { min-width: 980px; }
 .calendar-head, .calendar-body { display: grid; grid-template-columns: 78px repeat(7, minmax(128px, 1fr)); }
 .calendar-head { position: sticky; z-index: 12; top: 0; min-height: 64px; background: rgba(255,255,255,.97); border-bottom: 1px solid var(--line); box-shadow: 0 5px 14px rgba(28,84,127,.05); }
-.calendar-timezone { padding: 9px 8px; display: flex; align-items: flex-end; justify-content: center; overflow: hidden; color: #8a9bac; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-timezone { padding: 9px 8px; display: flex; align-items: flex-end; justify-content: center; overflow: hidden; color: #8a9bac; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-day-head { display: flex; align-items: center; justify-content: center; gap: 5px; border-left: 1px solid var(--line); color: #70869a; }
 .calendar-day-head span { font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .calendar-day-head strong { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 50%; color: var(--ink); font: 700 15px 'Manrope', sans-serif; }
@@ -232,7 +240,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .calendar-day-head.today strong { background: var(--ink-2); color: white; }
 .calendar-body { position: relative; background: #fff; }
 .calendar-time-axis { position: relative; height: 100%; border-right: 1px solid var(--line); background: #fbfdff; }
-.calendar-time-axis span { position: absolute; right: 10px; transform: translateY(-50%); color: #8294a5; font-size: 9px; font-weight: 600; }
+.calendar-time-axis span { position: absolute; right: 10px; transform: translateY(-50%); color: #8294a5; font-size: 15px; font-weight: 600; }
 .calendar-day-column { position: relative; height: 100%; border-right: 1px solid var(--line); background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 55px, rgba(7,56,111,.08) 55px, rgba(7,56,111,.08) 56px); }
 .calendar-day-column.today { background-color: rgba(229,245,255,.34); }
 .calendar-event { position: absolute; z-index: 2; left: 4px; right: 4px; min-height: 24px; padding: 6px 21px 6px 8px; overflow: hidden; border: 1px solid rgba(15,89,151,.16); border-left: 4px solid #2f82c4; border-radius: 7px; background: #dcefff; color: #123f67; box-shadow: 0 3px 9px rgba(28,89,137,.08); }
@@ -286,6 +294,10 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .check-choice span { height: 39px; padding: 0 13px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 12px; background: white; color: #60788e; cursor: pointer; font-size: 10px; font-weight: 700; }
 .check-choice input:checked + span { color: white; background: var(--ink-2); border-color: var(--ink-2); }
 .settings-fields .button { justify-self: start; margin-top: 8px; }
+.link-page-actions { display: flex; align-items: flex-end; gap: 12px; }
+.link-student-filter { display: grid; gap: 6px; color: #415d74; font-size: 9px; font-weight: 700; }
+.link-student-filter select { width: 220px; height: 42px; padding-inline: 11px; border-radius: 11px; font-size: 10px; }
+.links-description { margin: -14px 0 20px; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .link-list { display: grid; gap: 10px; }
 .link-row { min-height: 82px; padding: 14px 20px; display: flex; align-items: center; gap: 16px; }
 .provider-mark { width: 45px; height: 45px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 14px; color: var(--ink); background: #e2f3ff; font: 700 19px 'Playfair Display', serif; }
@@ -393,6 +405,10 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
   .teacher-select-grid { grid-template-columns: 1fr; }
   .time-grid { grid-template-columns: repeat(4, 1fr); }
   .settings-card { padding: 25px; grid-template-columns: 1fr; gap: 28px; }
+  .link-page-actions { width: 100%; align-items: stretch; flex-direction: column; }
+  .link-student-filter select { width: 100%; }
+  .link-page-actions .button { align-self: flex-start; }
+  .links-description { margin-top: -16px; }
   .link-row { align-items: flex-start; flex-wrap: wrap; }
   .link-fields { min-width: calc(100% - 65px); }
   .link-fields label { grid-template-columns: 1fr; }
