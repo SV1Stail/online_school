@@ -74,7 +74,7 @@ reverse proxy установите `APP_ENV=development` и `COOKIE_SECURE=false
 | `GET /api/v1/students` | преподаватель, модератор | Активные ученики |
 | `GET /api/v1/teachers/{id}/availability` | авторизованный | Интервалы доступности |
 | `GET /api/v1/teachers/{id}/slots` | авторизованный | Свободные варианты записи |
-| `POST /api/v1/availability` | преподаватель, модератор | Создать доступность |
+| `POST /api/v1/availability` | преподаватель, модератор | Создать непересекающиеся части доступности |
 | `DELETE /api/v1/availability/{id}` | преподаватель, модератор | Удалить свободный интервал |
 | `GET /api/v1/bookings` | авторизованный | Доступные пользователю занятия |
 | `POST /api/v1/bookings` | авторизованный | Создать заявку или занятие |
@@ -90,6 +90,11 @@ reverse proxy установите `APP_ENV=development` и `COOKIE_SECURE=false
 | `POST /api/v1/admin/users` | модератор | Создать пользователя |
 | `PATCH /api/v1/admin/users/{id}` | модератор | Изменить профиль или активность |
 | `POST /api/v1/admin/users/{id}/reset-password` | модератор | Выдать временный пароль |
+
+`POST /api/v1/availability` не изменяет существующие интервалы и занятия. Запрошенный
+диапазон разбивается вокруг пересечений, а ответ содержит созданные части в `items`
+и пропущенные диапазоны в `skippedRanges`. Для слишком короткой части используется
+причина `too_short`, для пересечения — `overlap`.
 
 ## Защита от DoS и DDoS
 

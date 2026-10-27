@@ -40,7 +40,7 @@ func (s *Service) CreateAvailability(
 	ctx context.Context,
 	actor *user.User,
 	input CreateAvailabilityInput,
-) (*Availability, error) {
+) (*CreateAvailabilityResult, error) {
 	if actor.Role == user.RoleTeacher {
 		input.TeacherID = actor.ID
 	} else if actor.Role != user.RoleModerator {
@@ -49,14 +49,19 @@ func (s *Service) CreateAvailability(
 	if err := validateAvailability(input); err != nil {
 		return nil, err
 	}
-	created, err := s.repository.CreateAvailability(ctx, input, actor.ID)
+	result, err := s.repository.CreateAvailability(ctx, input, actor.ID)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.auditor.Write(ctx, actor.ID, "availability.created", "availability", created.ID, nil); err != nil {
-		return nil, err
+	for _, created := range result.Items {
+		if err := s.auditor.Write(ctx, actor.ID, "availability.created", "availability", created.ID, map[string]any{
+			"requested_starts_at": input.StartsAt.UTC(),
+			"requested_ends_at":   input.EndsAt.UTC(),
+		}); err != nil {
+			return nil, err
+		}
 	}
-	return created, nil
+	return result, nil
 }
 
 func (s *Service) ListAvailability(
@@ -268,6 +273,92 @@ func validateAvailability(input CreateAvailabilityInput) error {
 		}
 	}
 	return nil
+}
+
+func PlanAvailabilityCreation(input CreateAvailabilityInput, blocked []TimeRange) *AvailabilityCreationPlan {
+	start := input.StartsAt.UTC()
+	end := input.EndsAt.UTC()
+	clipped := make([]TimeRange, 0, len(blocked))
+	for _, item := range blocked {
+		blockedStart := item.StartsAt.UTC()
+		blockedEnd := item.EndsAt.UTC()
+		if blockedStart.Before(start) {
+			blockedStart = start
+		}
+		if blockedEnd.After(end) {
+			blockedEnd = end
+		}
+		if blockedStart.Before(blockedEnd) {
+			clipped = append(clipped, TimeRange{StartsAt: blockedStart, EndsAt: blockedEnd})
+		}
+	}
+	sort.Slice(clipped, func(i, j int) bool {
+		if clipped[i].StartsAt.Equal(clipped[j].StartsAt) {
+			return clipped[i].EndsAt.Before(clipped[j].EndsAt)
+		}
+		return clipped[i].StartsAt.Before(clipped[j].StartsAt)
+	})
+
+	merged := make([]TimeRange, 0, len(clipped))
+	for _, item := range clipped {
+		if len(merged) == 0 || item.StartsAt.After(merged[len(merged)-1].EndsAt) {
+			merged = append(merged, item)
+			continue
+		}
+		if item.EndsAt.After(merged[len(merged)-1].EndsAt) {
+			merged[len(merged)-1].EndsAt = item.EndsAt
+		}
+	}
+
+	plan := &AvailabilityCreationPlan{
+		Fragments:     make([]CreateAvailabilityInput, 0, len(merged)+1),
+		SkippedRanges: make([]SkippedAvailabilityRange, 0, len(merged)),
+	}
+	cursor := start
+	for _, item := range merged {
+		appendAvailabilityFragment(plan, input, cursor, item.StartsAt)
+		plan.SkippedRanges = append(plan.SkippedRanges, SkippedAvailabilityRange{
+			StartsAt: item.StartsAt,
+			EndsAt:   item.EndsAt,
+			Reason:   AvailabilitySkipOverlap,
+		})
+		if item.EndsAt.After(cursor) {
+			cursor = item.EndsAt
+		}
+	}
+	appendAvailabilityFragment(plan, input, cursor, end)
+	return plan
+}
+
+func appendAvailabilityFragment(
+	plan *AvailabilityCreationPlan,
+	input CreateAvailabilityInput,
+	start, end time.Time,
+) {
+	if !start.Before(end) {
+		return
+	}
+	availableFor := end.Sub(start)
+	durations := make([]int16, 0, len(input.AllowedDurations))
+	for _, duration := range input.AllowedDurations {
+		if time.Duration(duration)*time.Minute <= availableFor {
+			durations = append(durations, duration)
+		}
+	}
+	if len(durations) == 0 {
+		plan.SkippedRanges = append(plan.SkippedRanges, SkippedAvailabilityRange{
+			StartsAt: start,
+			EndsAt:   end,
+			Reason:   AvailabilitySkipTooShort,
+		})
+		return
+	}
+	plan.Fragments = append(plan.Fragments, CreateAvailabilityInput{
+		TeacherID:        input.TeacherID,
+		StartsAt:         start,
+		EndsAt:           end,
+		AllowedDurations: durations,
+	})
 }
 
 func validDuration(duration int16) bool {

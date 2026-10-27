@@ -35,6 +35,8 @@ const period = (daysBack = 30, daysForward = 120) => {
   return `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
 }
 
+const explicitPeriod = (from, to) => `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+
 export const api = {
   login: (login, password) => request('/auth/login', { method: 'POST', body: { login, password } }),
   logout: () => request('/auth/logout', { method: 'POST' }),
@@ -48,7 +50,7 @@ export const api = {
   students: () => request('/students'),
   bookings: () => request(`/bookings${period()}`),
   bookingConferenceLinks: (bookingId) => request(`/bookings/${bookingId}/conference-links`),
-  availability: (teacherId) => request(`/teachers/${teacherId}/availability${period()}`),
+  availability: (teacherId, from, to) => request(`/teachers/${teacherId}/availability${explicitPeriod(from, to)}`),
   slots: (teacherId) => request(`/teachers/${teacherId}/slots${period(0, 30)}`),
   createBooking: (payload) => request('/bookings', {
     method: 'POST',

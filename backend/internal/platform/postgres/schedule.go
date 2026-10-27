@@ -21,32 +21,122 @@ func (s *Store) CreateAvailability(
 	ctx context.Context,
 	input schedule.CreateAvailabilityInput,
 	createdBy string,
-) (*schedule.Availability, error) {
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO availability_windows (
-			teacher_id, starts_at, ends_at, allowed_durations, created_by
-		)
-		SELECT $1, $2, $3, $4, $5
+) (*schedule.CreateAvailabilityResult, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, fmt.Errorf("begin create availability: %w", err)
+	}
+	defer rollback(tx)
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, input.TeacherID); err != nil {
+		return nil, fmt.Errorf("lock teacher availability: %w", err)
+	}
+	var teacherID string
+	if err := tx.QueryRow(ctx, `
+		SELECT id
 		FROM users
 		WHERE id = $1 AND role = 'teacher' AND active = true
-		RETURNING `+availabilityColumns,
-		input.TeacherID,
-		input.StartsAt.UTC(),
-		input.EndsAt.UTC(),
-		input.AllowedDurations,
-		createdBy,
-	)
-	created := &schedule.Availability{}
-	if err := scanAvailability(row, created); err != nil {
+		FOR SHARE
+	`, input.TeacherID).Scan(&teacherID); err != nil {
 		if isNoRows(err) {
 			return nil, schedule.ErrInvalidInput
 		}
-		if isExclusionViolation(err) {
-			return nil, schedule.ErrConflict
-		}
-		return nil, fmt.Errorf("create availability: %w", err)
+		return nil, fmt.Errorf("validate availability teacher: %w", err)
 	}
-	return created, nil
+
+	blocked, err := loadBlockedAvailabilityRanges(ctx, tx, input)
+	if err != nil {
+		return nil, err
+	}
+	plan := schedule.PlanAvailabilityCreation(input, blocked)
+	result := &schedule.CreateAvailabilityResult{
+		Items:         make([]schedule.Availability, 0, len(plan.Fragments)),
+		SkippedRanges: plan.SkippedRanges,
+	}
+	for _, fragment := range plan.Fragments {
+		row := tx.QueryRow(ctx, `
+			INSERT INTO availability_windows (
+				teacher_id, starts_at, ends_at, allowed_durations, created_by
+			)
+			VALUES ($1, $2, $3, $4, $5)
+			RETURNING `+availabilityColumns,
+			fragment.TeacherID,
+			fragment.StartsAt.UTC(),
+			fragment.EndsAt.UTC(),
+			fragment.AllowedDurations,
+			createdBy,
+		)
+		var created schedule.Availability
+		if err := scanAvailability(row, &created); err != nil {
+			if isExclusionViolation(err) {
+				return nil, schedule.ErrConflict
+			}
+			return nil, fmt.Errorf("create availability fragment: %w", err)
+		}
+		result.Items = append(result.Items, created)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create availability: %w", err)
+	}
+	return result, nil
+}
+
+func loadBlockedAvailabilityRanges(
+	ctx context.Context,
+	tx pgx.Tx,
+	input schedule.CreateAvailabilityInput,
+) ([]schedule.TimeRange, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT starts_at, ends_at
+		FROM availability_windows
+		WHERE teacher_id = $1
+			AND deleted_at IS NULL
+			AND starts_at < $3 AND ends_at > $2
+		ORDER BY starts_at, ends_at
+		FOR UPDATE
+	`, input.TeacherID, input.StartsAt.UTC(), input.EndsAt.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("load overlapping availability: %w", err)
+	}
+	blocked := make([]schedule.TimeRange, 0)
+	for rows.Next() {
+		var item schedule.TimeRange
+		if err := rows.Scan(&item.StartsAt, &item.EndsAt); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan overlapping availability: %w", err)
+		}
+		blocked = append(blocked, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate overlapping availability: %w", err)
+	}
+	rows.Close()
+
+	rows, err = tx.Query(ctx, `
+		SELECT starts_at, ends_at
+		FROM bookings
+		WHERE teacher_id = $1
+			AND status IN ('pending', 'confirmed')
+			AND starts_at < $3 AND ends_at > $2
+		ORDER BY starts_at, ends_at
+		FOR SHARE
+	`, input.TeacherID, input.StartsAt.UTC(), input.EndsAt.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("load overlapping bookings: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item schedule.TimeRange
+		if err := rows.Scan(&item.StartsAt, &item.EndsAt); err != nil {
+			return nil, fmt.Errorf("scan overlapping booking: %w", err)
+		}
+		blocked = append(blocked, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate overlapping bookings: %w", err)
+	}
+	return blocked, nil
 }
 
 func (s *Store) ListAvailability(

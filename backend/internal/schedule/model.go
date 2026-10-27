@@ -56,6 +56,29 @@ type TimeRange struct {
 	EndsAt   time.Time
 }
 
+type AvailabilitySkipReason string
+
+const (
+	AvailabilitySkipOverlap  AvailabilitySkipReason = "overlap"
+	AvailabilitySkipTooShort AvailabilitySkipReason = "too_short"
+)
+
+type SkippedAvailabilityRange struct {
+	StartsAt time.Time              `json:"startsAt"`
+	EndsAt   time.Time              `json:"endsAt"`
+	Reason   AvailabilitySkipReason `json:"reason"`
+}
+
+type CreateAvailabilityResult struct {
+	Items         []Availability             `json:"items"`
+	SkippedRanges []SkippedAvailabilityRange `json:"skippedRanges"`
+}
+
+type AvailabilityCreationPlan struct {
+	Fragments     []CreateAvailabilityInput
+	SkippedRanges []SkippedAvailabilityRange
+}
+
 type SlotData struct {
 	Availability []Availability
 	Blocked      []TimeRange
@@ -78,7 +101,7 @@ type CreateBookingInput struct {
 }
 
 type Repository interface {
-	CreateAvailability(ctx context.Context, input CreateAvailabilityInput, createdBy string) (*Availability, error)
+	CreateAvailability(ctx context.Context, input CreateAvailabilityInput, createdBy string) (*CreateAvailabilityResult, error)
 	ListAvailability(ctx context.Context, teacherID string, from, to time.Time) ([]Availability, error)
 	LoadSlotData(ctx context.Context, teacherID, studentID string, from, to time.Time) (*SlotData, error)
 	DeleteAvailability(ctx context.Context, id, teacherID string, moderator bool) error

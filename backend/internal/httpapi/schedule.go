@@ -23,12 +23,16 @@ func (a *API) createAvailability(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 	}
-	created, err := a.schedule.CreateAvailability(request.Context(), currentUser(request), input)
+	result, err := a.schedule.CreateAvailability(request.Context(), currentUser(request), input)
 	if err != nil {
 		a.handleError(writer, request, err)
 		return
 	}
-	writeJSON(writer, http.StatusCreated, created)
+	status := http.StatusCreated
+	if len(result.Items) == 0 {
+		status = http.StatusOK
+	}
+	writeJSON(writer, status, result)
 }
 
 func (a *API) listAvailability(writer http.ResponseWriter, request *http.Request) {

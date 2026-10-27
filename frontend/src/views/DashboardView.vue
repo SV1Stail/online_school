@@ -271,8 +271,23 @@ async function loadCalendarAvailability() {
     availability.value = []
     return
   }
-  try { availability.value = (await api.availability(calendarTeacherId.value)).items || [] }
-  catch { notify('Не удалось загрузить свободные интервалы') }
+  const teacherId = calendarTeacherId.value
+  const weekStart = startOfWeekKey(calendarAnchor.value || localDate())
+  const weekEnd = addDaysToKey(weekStart, 7)
+  try {
+    const response = await api.availability(
+      teacherId,
+      zonedLocalToUTC(weekStart, '00:00'),
+      zonedLocalToUTC(weekEnd, '00:00'),
+    )
+    if (calendarTeacherId.value === teacherId && startOfWeekKey(calendarAnchor.value || localDate()) === weekStart) {
+      availability.value = response.items || []
+    }
+  } catch {
+    if (calendarTeacherId.value === teacherId && startOfWeekKey(calendarAnchor.value || localDate()) === weekStart) {
+      notify('Не удалось загрузить свободные интервалы')
+    }
+  }
 }
 
 async function loadStudentLinks() {
@@ -308,18 +323,23 @@ async function addAvailability() {
   const teacherId = role.value === 'teacher' ? currentUser.value.id : availabilityForm.value.teacherId
   if (!teacherId) return notify('Выберите преподавателя')
   try {
-    const created = await api.createAvailability({
+    const result = await api.createAvailability({
       teacherId,
       startsAt: zonedLocalToUTC(availabilityForm.value.date, availabilityForm.value.from),
       endsAt: zonedLocalToUTC(availabilityForm.value.date, availabilityForm.value.to),
       allowedDurations: availabilityForm.value.durations,
     })
-    if (calendarTeacherId.value === teacherId) availability.value.push(created)
+    const created = result.items || []
+    if (calendarTeacherId.value === teacherId) availability.value.push(...created)
     else calendarTeacherId.value = teacherId
     calendarAnchor.value = availabilityForm.value.date
     setPage('schedule')
-    notify('Свободное время добавлено')
-  } catch { notify('Не удалось добавить интервал') }
+    if (!created.length) notify('В выбранном диапазоне нет нового свободного времени')
+    else if (result.skippedRanges?.length) notify(`Добавлено интервалов: ${created.length}. Пересечения пропущены`)
+    else notify(created.length === 1 ? 'Свободное время добавлено' : `Добавлено интервалов: ${created.length}`)
+  } catch (err) {
+    notify(err.code === 'conflict' ? 'Расписание изменилось. Попробуйте ещё раз' : 'Не удалось добавить интервал')
+  }
 }
 
 async function saveLinks() {
@@ -395,6 +415,9 @@ watch(() => bookingForm.value.teacherId, () => {
 watch(calendarTeacherId, () => {
   if (role.value === 'moderator') availabilityForm.value.teacherId = calendarTeacherId.value
   loadCalendarAvailability()
+})
+watch(calendarAnchor, () => {
+  if (!loading.value) loadCalendarAvailability()
 })
 watch(linkStudentId, () => {
   if (!loading.value) loadStudentLinks()
