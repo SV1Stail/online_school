@@ -15,14 +15,15 @@ import (
 
 const conferenceLinkColumns = `id, student_id, provider, title, url, active, display_order, created_at, updated_at`
 
-func (s *Store) ListForStudent(ctx context.Context, studentID string) ([]conference.Link, error) {
+func (s *Store) ListForStudent(ctx context.Context, studentID string, includeInactive bool) ([]conference.Link, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+conferenceLinkColumns+`
 		FROM student_conference_links
 		WHERE student_id = $1
 			AND deleted_at IS NULL
+			AND ($2::boolean OR (active = true AND url <> ''))
 		ORDER BY display_order, title, id
-	`, studentID)
+	`, studentID, includeInactive)
 	if err != nil {
 		return nil, fmt.Errorf("list conference links: %w", err)
 	}

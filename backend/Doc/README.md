@@ -82,7 +82,7 @@ reverse proxy установите `APP_ENV=development` и `COOKIE_SECURE=false
 | `POST /api/v1/bookings/{id}/reject` | преподаватель, модератор | Отклонить заявку |
 | `POST /api/v1/bookings/{id}/cancel` | авторизованный | Отменить заявку или занятие |
 | `GET /api/v1/bookings/{id}/conference-links` | участник занятия | Ссылки подтверждённого занятия |
-| `GET /api/v1/students/{id}/conference-links` | преподаватель, модератор | Настройки ссылок ученика |
+| `GET /api/v1/students/{id}/conference-links` | сам ученик, преподаватель, модератор | Доступные ссылки или настройки ссылок ученика |
 | `POST /api/v1/students/{id}/conference-links` | преподаватель, модератор | Добавить пользовательскую ссылку ученика |
 | `PATCH /api/v1/students/{id}/conference-links/{linkID}` | преподаватель, модератор | Изменить ссылку ученика |
 | `DELETE /api/v1/students/{id}/conference-links/{linkID}` | преподаватель, модератор | Удалить пользовательскую ссылку ученика |
@@ -90,6 +90,10 @@ reverse proxy установите `APP_ENV=development` и `COOKIE_SECURE=false
 | `POST /api/v1/admin/users` | модератор | Создать пользователя |
 | `PATCH /api/v1/admin/users/{id}` | модератор | Изменить профиль или активность |
 | `POST /api/v1/admin/users/{id}/reset-password` | модератор | Выдать временный пароль |
+
+Ученик может запросить ссылки только для собственного аккаунта. В ответ попадают
+только активные ссылки с заполненным адресом; преподаватель и модератор получают
+полный список настроек выбранного ученика.
 
 `POST /api/v1/availability` не изменяет существующие интервалы и занятия. Запрошенный
 диапазон разбивается вокруг пересечений, а ответ содержит созданные части в `items`

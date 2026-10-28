@@ -27,7 +27,10 @@ func NewService(repository Repository, auditor Auditor) *Service {
 
 func (s *Service) ListForStudent(ctx context.Context, actor *user.User, studentID string) ([]Link, error) {
 	if actor.Role == user.RoleModerator || actor.Role == user.RoleTeacher {
-		return s.repository.ListForStudent(ctx, studentID)
+		return s.repository.ListForStudent(ctx, studentID, true)
+	}
+	if actor.Role == user.RoleStudent && actor.ID == studentID {
+		return s.repository.ListForStudent(ctx, studentID, false)
 	}
 	return nil, ErrForbidden
 }

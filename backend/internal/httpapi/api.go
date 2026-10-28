@@ -77,10 +77,10 @@ func (a *API) Handler(cfg *config.Config) (http.Handler, error) {
 	protected.HandleFunc("POST /api/v1/bookings", a.createBooking)
 	protected.HandleFunc("POST /api/v1/bookings/{bookingID}/cancel", a.cancelBooking)
 	protected.HandleFunc("GET /api/v1/bookings/{bookingID}/conference-links", a.listBookingConferenceLinks)
+	protected.HandleFunc("GET /api/v1/students/{studentID}/conference-links", a.listStudentConferenceLinks)
 
 	staffOnly := middleware.RequireRoles(user.RoleTeacher, user.RoleModerator)
 	protected.Handle("GET /api/v1/students", staffOnly(http.HandlerFunc(a.listStudents)))
-	protected.Handle("GET /api/v1/students/{studentID}/conference-links", staffOnly(http.HandlerFunc(a.listStudentConferenceLinks)))
 	protected.Handle("POST /api/v1/availability", staffOnly(http.HandlerFunc(a.createAvailability)))
 	protected.Handle("DELETE /api/v1/availability/{availabilityID}", staffOnly(http.HandlerFunc(a.deleteAvailability)))
 	protected.Handle("POST /api/v1/bookings/{bookingID}/confirm", staffOnly(http.HandlerFunc(a.confirmBooking)))

@@ -56,7 +56,7 @@ type UpdateInput struct {
 }
 
 type Repository interface {
-	ListForStudent(ctx context.Context, studentID string) ([]Link, error)
+	ListForStudent(ctx context.Context, studentID string, includeInactive bool) ([]Link, error)
 	ListForBooking(ctx context.Context, bookingID string, actor *user.User) ([]Link, error)
 	CreateConferenceLink(ctx context.Context, input CreateInput) (*Link, error)
 	UpdateConferenceLink(ctx context.Context, id, studentID string, input UpdateInput) (*Link, error)

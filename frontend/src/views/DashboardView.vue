@@ -13,8 +13,14 @@ const teachers = ref([])
 const students = ref([])
 const bookings = ref([])
 const slots = ref([])
+const slotsLoading = ref(false)
+const bookingSlotEditorOpen = ref(false)
+const bookingSlotEditorSaving = ref(false)
+const bookingSubmitting = ref(false)
+const selectedBookingSlot = ref(null)
 const availability = ref([])
 const links = ref([])
+const profileLinks = ref([])
 const users = ref([])
 const realUser = ref(null)
 const calendarTeacherId = ref('')
@@ -38,7 +44,8 @@ const localDate = (offsetDays = 0) => {
   return local.toISOString().slice(0, 10)
 }
 
-const bookingForm = ref({ teacherId: '', duration: 60, date: localDate(3), slot: '' })
+const bookingForm = ref({ teacherId: '', duration: 60 })
+const bookingSlotForm = ref({ date: '', time: '' })
 const availabilityForm = ref({ teacherId: '', date: localDate(3), from: '15:00', to: '21:00', durations: [30, 60] })
 const userForm = ref({ fullName: '', login: '', password: '', role: 'student', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })
 const profileForm = ref({ fullName: '', subjectLabel: '' })
@@ -64,11 +71,45 @@ const upcomingBookings = computed(() => visibleBookings.value
   .filter(item => ['pending', 'confirmed'].includes(item.status) && new Date(item.startsAt) >= new Date())
   .sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt))
   .slice(0, 4))
-const timeOptions = computed(() => {
-  return slots.value
-    .filter(item => formatISODate(item.startsAt) === bookingForm.value.date)
-    .filter(item => item.allowedDurations?.includes(bookingForm.value.duration))
-    .map(item => formatDate(item.startsAt, { hour: '2-digit', minute: '2-digit', hour12: false }))
+const bookingSlotRanges = computed(() => {
+  const duration = bookingForm.value.duration
+  const eligible = slots.value
+    .filter(item => item.allowedDurations?.includes(duration))
+    .sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt))
+  const ranges = []
+  for (const slot of eligible) {
+    const previous = ranges[ranges.length - 1]
+    const previousSlot = previous?.slotOptions[previous.slotOptions.length - 1]
+    const consecutive = previous
+      && previous.availabilityId === slot.availabilityId
+      && formatISODate(previous.startsAt) === formatISODate(slot.startsAt)
+      && new Date(slot.startsAt) - new Date(previousSlot.startsAt) === 10 * 60000
+    if (consecutive) {
+      previous.slotOptions.push(slot)
+      previous.lastStartsAt = slot.startsAt
+      previous.endsAt = new Date(new Date(slot.startsAt).getTime() + duration * 60000).toISOString()
+      continue
+    }
+    ranges.push({
+      id: `${slot.availabilityId}-${slot.startsAt}`,
+      availabilityId: slot.availabilityId,
+      startsAt: slot.startsAt,
+      lastStartsAt: slot.startsAt,
+      endsAt: new Date(new Date(slot.startsAt).getTime() + duration * 60000).toISOString(),
+      slotOptions: [slot],
+      kind: 'slot',
+    })
+  }
+  return ranges
+})
+const selectedBookingCalendarItem = computed(() => {
+  const slot = selectedBookingSlot.value
+  if (!slot) return null
+  return {
+    ...slot,
+    endsAt: new Date(new Date(slot.startsAt).getTime() + bookingForm.value.duration * 60000).toISOString(),
+    kind: 'selected-slot',
+  }
 })
 const calendarHours = Array.from({ length: CALENDAR_END_HOUR - CALENDAR_START_HOUR }, (_, index) => index + CALENDAR_START_HOUR)
 const calendarBookings = computed(() => {
@@ -175,6 +216,9 @@ function calendarItemsForDay(dayKey) {
       .map(item => ({ ...item, kind: 'availability' }))
   return [...availabilityItems, ...bookingItems]
 }
+function bookingSlotRangesForDay(dayKey) {
+  return bookingSlotRanges.value.filter(item => formatISODate(item.startsAt) === dayKey)
+}
 function calendarItemTitle(item) {
   if (item.kind === 'availability') return 'Свободное время'
   return role.value === 'student' ? teacherName(item.teacherId) : studentName(item.studentId)
@@ -182,11 +226,45 @@ function calendarItemTitle(item) {
 function calendarItemTime(item) {
   return `${formatDate(item.startsAt, { hour: '2-digit', minute: '2-digit' })}–${formatDate(item.endsAt, { hour: '2-digit', minute: '2-digit' })}`
 }
+function timeInputValue(value) {
+  const time = timeParts(value)
+  return `${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}`
+}
+function bookingSlotFormValue(slot) {
+  if (!slot) return { date: '', time: '' }
+  return { date: formatISODate(slot.startsAt), time: timeInputValue(slot.startsAt) }
+}
+function openBookingSlotEditor(range, event) {
+  const column = event.currentTarget.parentElement
+  if (!column || !range.slotOptions.length) return
+  const bounds = column.getBoundingClientRect()
+  const clickedMinutes = CALENDAR_START_HOUR * 60 + ((event.clientY - bounds.top) / HOUR_HEIGHT) * 60
+  const selected = range.slotOptions.reduce((closest, candidate) => {
+    const candidateTime = timeParts(candidate.startsAt)
+    const closestTime = timeParts(closest.startsAt)
+    const candidateDistance = Math.abs(candidateTime.hour * 60 + candidateTime.minute - clickedMinutes)
+    const closestDistance = Math.abs(closestTime.hour * 60 + closestTime.minute - clickedMinutes)
+    return candidateDistance < closestDistance ? candidate : closest
+  })
+  bookingSlotForm.value = bookingSlotFormValue(selected)
+  bookingSlotEditorOpen.value = true
+}
+function closeBookingSlotEditor() {
+  if (bookingSlotEditorSaving.value) return
+  bookingSlotForm.value = bookingSlotFormValue(selectedBookingSlot.value)
+  bookingSlotEditorOpen.value = false
+}
 function moveWeek(days) {
   calendarAnchor.value = addDaysToKey(calendarAnchor.value, days)
 }
 function goToCurrentWeek() {
-  calendarAnchor.value = formatISODate(new Date())
+  const today = formatISODate(new Date())
+  if (calendarAnchor.value === today) {
+    if (activePage.value === 'book') loadSlots()
+    else loadCalendarAvailability()
+  } else {
+    calendarAnchor.value = today
+  }
   scrollCalendarToWorkingHours()
 }
 function scrollCalendarToWorkingHours() {
@@ -243,7 +321,9 @@ async function load() {
     calendarAnchor.value = formatISODate(new Date())
     calendarTeacherId.value = realUser.value.role === 'teacher' ? realUser.value.id : teachers.value[0]?.id || ''
     availabilityForm.value.teacherId = calendarTeacherId.value
-    if (realUser.value.role !== 'student') {
+    if (realUser.value.role === 'student') {
+      await loadProfileLinks()
+    } else {
       students.value = (await api.students()).items || []
       linkStudentId.value = students.value[0]?.id || ''
       await loadStudentLinks()
@@ -258,12 +338,34 @@ async function load() {
 }
 
 async function loadSlots() {
-  if (!bookingForm.value.teacherId) {
+  const teacherId = bookingForm.value.teacherId
+  if (!teacherId) {
     slots.value = []
+    slotsLoading.value = false
     return
   }
-  try { slots.value = (await api.slots(bookingForm.value.teacherId)).items || [] }
-  catch { notify('Не удалось загрузить свободное время') }
+  const weekStart = startOfWeekKey(calendarAnchor.value || localDate())
+  const weekEnd = addDaysToKey(weekStart, 7)
+  slots.value = []
+  slotsLoading.value = true
+  try {
+    const response = await api.slots(
+      teacherId,
+      zonedLocalToUTC(weekStart, '00:00'),
+      zonedLocalToUTC(weekEnd, '00:00'),
+    )
+    if (bookingForm.value.teacherId === teacherId && startOfWeekKey(calendarAnchor.value || localDate()) === weekStart) {
+      slots.value = response.items || []
+    }
+  } catch {
+    if (bookingForm.value.teacherId === teacherId && startOfWeekKey(calendarAnchor.value || localDate()) === weekStart) {
+      notify('Не удалось загрузить свободное время')
+    }
+  } finally {
+    if (bookingForm.value.teacherId === teacherId && startOfWeekKey(calendarAnchor.value || localDate()) === weekStart) {
+      slotsLoading.value = false
+    }
+  }
 }
 
 async function loadCalendarAvailability() {
@@ -301,16 +403,79 @@ async function loadStudentLinks() {
   catch { notify('Не удалось загрузить ссылки ученика') }
 }
 
-async function submitBooking() {
-  if (!bookingForm.value.slot) return notify('Выберите время занятия')
-  const selected = slots.value.find(item => formatDate(item.startsAt, { hour: '2-digit', minute: '2-digit', hour12: false }) === bookingForm.value.slot)
-  if (!selected) return notify('Выбранное время уже недоступно')
+async function loadProfileLinks() {
+  profileLinks.value = []
+  const studentId = currentUser.value?.id
+  if (role.value !== 'student' || !studentId) return
   try {
+    const response = await api.studentConferenceLinks(studentId)
+    if (currentUser.value?.id === studentId) profileLinks.value = response.items || []
+  }
+  catch { notify('Не удалось загрузить ссылки для подключения') }
+}
+
+async function findAvailableBookingSlot(date, time) {
+  if (!bookingForm.value.teacherId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null
+  const hour = Number(time.slice(0, 2))
+  const minute = Number(time.slice(3, 5))
+  if (hour > 23 || minute > 59 || minute % 10 !== 0) return null
+  const response = await api.slots(
+    bookingForm.value.teacherId,
+    zonedLocalToUTC(date, '00:00'),
+    zonedLocalToUTC(addDaysToKey(date, 1), '00:00'),
+  )
+  const target = new Date(zonedLocalToUTC(date, time)).getTime()
+  return (response.items || []).find(item => (
+    new Date(item.startsAt).getTime() === target
+    && item.allowedDurations?.includes(bookingForm.value.duration)
+  )) || null
+}
+
+async function confirmBookingSlot() {
+  const { date, time } = bookingSlotForm.value
+  if (!date || !time) return notify('Укажите дату и время начала занятия')
+  if (Number(time.slice(3, 5)) % 10 !== 0) return notify('Время начала должно быть кратно 10 минутам')
+  bookingSlotEditorSaving.value = true
+  try {
+    const available = await findAvailableBookingSlot(date, time)
+    if (!available) return notify('На выбранную дату и время свободного слота нет')
+    selectedBookingSlot.value = available
+    bookingSlotEditorOpen.value = false
+    if (startOfWeekKey(calendarAnchor.value) !== startOfWeekKey(date)) calendarAnchor.value = date
+    notify('Время занятия выбрано')
+  } catch {
+    notify('Не удалось проверить свободное время')
+  } finally {
+    bookingSlotEditorSaving.value = false
+  }
+}
+
+async function submitBooking() {
+  if (!selectedBookingSlot.value) return notify('Выберите время занятия на календаре')
+  bookingSubmitting.value = true
+  try {
+    const selected = await findAvailableBookingSlot(bookingSlotForm.value.date, bookingSlotForm.value.time)
+    if (!selected) {
+      selectedBookingSlot.value = null
+      bookingSlotEditorOpen.value = true
+      return notify('Выбранное время уже занято. Укажите другое время')
+    }
     const created = await api.createBooking({ availabilityId: selected.availabilityId, teacherId: selected.teacherId, startsAt: selected.startsAt, durationMinutes: bookingForm.value.duration })
     bookings.value.unshift(created)
-    activePage.value = 'schedule'
+    selectedBookingSlot.value = null
+    setPage('schedule')
     notify('Заявка отправлена преподавателю')
-  } catch { notify('Не удалось создать запись') }
+  } catch (err) {
+    if (err.code === 'conflict' || err.code === 'booking_closed') {
+      selectedBookingSlot.value = null
+      bookingSlotEditorOpen.value = true
+      notify('Выбранное время уже недоступно. Укажите другое время')
+    } else {
+      notify('Не удалось создать запись')
+    }
+  } finally {
+    bookingSubmitting.value = false
+  }
 }
 
 async function bookingAction(item, action) {
@@ -406,18 +571,32 @@ function setPage(page) {
   activePage.value = page
   sidebarOpen.value = false
   if (page === 'schedule') scrollCalendarToWorkingHours()
+  if (page === 'book') {
+    const today = formatISODate(new Date())
+    if (calendarAnchor.value === today) loadSlots()
+    else calendarAnchor.value = today
+    scrollCalendarToWorkingHours()
+  }
+  if (page === 'profile' && role.value === 'student') loadProfileLinks()
 }
 
 watch(() => bookingForm.value.teacherId, () => {
-  bookingForm.value.slot = ''
-  loadSlots()
+  selectedBookingSlot.value = null
+  bookingSlotEditorOpen.value = false
+  if (!loading.value && activePage.value === 'book') loadSlots()
+})
+watch(() => bookingForm.value.duration, () => {
+  selectedBookingSlot.value = null
+  bookingSlotEditorOpen.value = false
 })
 watch(calendarTeacherId, () => {
   if (role.value === 'moderator') availabilityForm.value.teacherId = calendarTeacherId.value
   loadCalendarAvailability()
 })
 watch(calendarAnchor, () => {
-  if (!loading.value) loadCalendarAvailability()
+  if (loading.value) return
+  if (activePage.value === 'book') loadSlots()
+  else loadCalendarAvailability()
 })
 watch(linkStudentId, () => {
   if (!loading.value) loadStudentLinks()
@@ -569,23 +748,77 @@ onMounted(load)
         </template>
 
         <template v-else-if="activePage === 'book'">
-          <section class="page-title"><div><p class="section-kicker">Новая запись</p><h2>Выберите занятие</h2></div></section>
+          <section class="page-title"><div><p class="section-kicker">Новая запись</p><h2>Выберите время на календаре</h2></div></section>
           <form class="booking-layout" @submit.prevent="submitBooking">
-            <div class="form-panel soft-panel">
-              <div class="form-step"><span>1</span><div><strong>Преподаватель</strong><p>К кому хотите записаться?</p></div></div>
-              <div class="teacher-select-grid"><button v-for="teacher in teachers" :key="teacher.id" type="button" :class="{ active: bookingForm.teacherId === teacher.id }" @click="bookingForm.teacherId = teacher.id"><span class="user-avatar">{{ teacher.fullName[0] }}</span><span><strong>{{ teacher.fullName }}</strong><small>{{ teacher.subjectLabel || 'Предмет не указан' }}</small></span><AppIcon v-if="bookingForm.teacherId === teacher.id" name="check" /></button></div>
-              <div class="form-step"><span>2</span><div><strong>Продолжительность</strong><p>Сколько времени понадобится?</p></div></div>
-              <div class="choice-row"><button v-for="duration in [15,30,45,60]" :key="duration" type="button" :class="{ active: bookingForm.duration === duration }" @click="bookingForm.duration = duration">{{ duration }} мин</button></div>
-              <div class="form-step"><span>3</span><div><strong>Дата и время</strong><p>Показываем только свободные варианты</p></div></div>
-              <label class="field-label">Дата<input v-model="bookingForm.date" type="date" /></label>
-              <div v-if="timeOptions.length" class="time-grid"><button v-for="time in timeOptions" :key="time" type="button" :class="{ active: bookingForm.slot === time }" @click="bookingForm.slot = time">{{ time }}</button></div>
-              <p v-else class="empty-slots">На эту дату свободного времени пока нет.</p>
+            <div class="booking-main">
+              <section class="booking-controls soft-panel">
+                <div><div class="form-step"><span>1</span><div><strong>Преподаватель</strong><p>К кому хотите записаться?</p></div></div><div class="teacher-select-grid"><button v-for="teacher in teachers" :key="teacher.id" type="button" :class="{ active: bookingForm.teacherId === teacher.id }" @click="bookingForm.teacherId = teacher.id"><span class="user-avatar">{{ teacher.fullName[0] }}</span><span><strong>{{ teacher.fullName }}</strong><small>{{ teacher.subjectLabel || 'Предмет не указан' }}</small></span><AppIcon v-if="bookingForm.teacherId === teacher.id" name="check" /></button></div></div>
+                <div><div class="form-step"><span>2</span><div><strong>Продолжительность</strong><p>Сколько времени понадобится?</p></div></div><div class="choice-row"><button v-for="duration in [15,30,45,60]" :key="duration" type="button" :class="{ active: bookingForm.duration === duration }" @click="bookingForm.duration = duration">{{ duration }} мин</button></div></div>
+              </section>
+
+              <section class="calendar-panel booking-calendar soft-panel">
+                <div class="calendar-toolbar">
+                  <div class="calendar-navigation">
+                    <button class="calendar-nav-arrow" type="button" aria-label="Предыдущая неделя" @click="moveWeek(-7)">‹</button>
+                    <button class="calendar-today" type="button" @click="goToCurrentWeek">Сегодня</button>
+                    <button class="calendar-nav-arrow" type="button" aria-label="Следующая неделя" @click="moveWeek(7)">›</button>
+                    <strong>{{ weekLabel }}</strong>
+                  </div>
+                  <div class="calendar-legend">
+                    <span><i class="legend-dot legend-dot--free"></i> Доступно</span>
+                    <span><i class="legend-dot legend-dot--selected"></i> Выбрано</span>
+                  </div>
+                </div>
+
+                <div ref="calendarScroll" class="calendar-scroll">
+                  <div class="calendar-canvas">
+                    <div class="calendar-head">
+                      <div class="calendar-timezone">{{ timezoneLabel }}</div>
+                      <div v-for="day in weekDays" :key="day.key" class="calendar-day-head" :class="{ today: day.today }">
+                        <span>{{ day.weekday }}</span><strong>{{ day.day }}</strong><small>{{ day.month }}</small>
+                      </div>
+                    </div>
+                    <div class="calendar-body" :style="{ height: `${calendarGridHeight}px` }">
+                      <p v-if="!slotsLoading && !bookingSlotRanges.length" class="booking-calendar-empty">На этой неделе нет свободного времени выбранной длительности.</p>
+                      <p v-if="slotsLoading" class="booking-calendar-empty">Загружаем свободное время…</p>
+                      <div class="calendar-time-axis">
+                        <span v-for="hour in calendarHours" :key="hour" :style="{ top: `${(hour - CALENDAR_START_HOUR) * HOUR_HEIGHT}px` }">{{ String(hour).padStart(2, '0') }}:00</span>
+                      </div>
+                      <div v-for="day in weekDays" :key="day.key" class="calendar-day-column" :class="{ today: day.today }">
+                        <button
+                          v-for="range in bookingSlotRangesForDay(day.key)"
+                          :key="range.id"
+                          type="button"
+                          class="calendar-event calendar-event--slot"
+                          :style="calendarItemStyle(range)"
+                          :title="`Доступно ${calendarItemTime(range)}. Нажмите, чтобы выбрать время`"
+                          :aria-label="`Выбрать время в интервале ${calendarItemTime(range)}`"
+                          @click="openBookingSlotEditor(range, $event)"
+                        >
+                          <strong>Свободное время</strong>
+                          <span>{{ calendarItemTime(range) }}</span>
+                          <small>Нажмите, чтобы уточнить время</small>
+                        </button>
+                        <article
+                          v-if="selectedBookingCalendarItem && formatISODate(selectedBookingCalendarItem.startsAt) === day.key"
+                          class="calendar-event calendar-event--selected-slot"
+                          :class="{ 'calendar-event--compact': bookingForm.duration < 45 }"
+                          :style="calendarItemStyle(selectedBookingCalendarItem)"
+                        >
+                          <strong>Выбрано</strong>
+                          <span>{{ calendarItemTime(selectedBookingCalendarItem) }}</span>
+                        </article>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
             <aside class="booking-summary">
               <p class="hand-note">Почти готово ♡</p><h3>Ваша запись</h3>
-              <dl><div><dt>Преподаватель</dt><dd>{{ teacherName(bookingForm.teacherId) }}</dd></div><div><dt>Дата</dt><dd>{{ bookingForm.date }}</dd></div><div><dt>Время</dt><dd>{{ bookingForm.slot || '—' }}</dd></div><div><dt>Длительность</dt><dd>{{ bookingForm.duration }} минут</dd></div></dl>
-              <button class="button button--ink button--full" type="submit">Отправить заявку <AppIcon name="arrow" :size="18" /></button>
-              <small>Преподаватель подтвердит запись вручную.</small>
+              <dl><div><dt>Преподаватель</dt><dd>{{ teacherName(bookingForm.teacherId) }}</dd></div><div><dt>Дата</dt><dd>{{ selectedBookingSlot ? formatDate(selectedBookingSlot.startsAt, { weekday: 'short', day: 'numeric', month: 'short' }) : '—' }}</dd></div><div><dt>Время</dt><dd>{{ selectedBookingCalendarItem ? calendarItemTime(selectedBookingCalendarItem) : '—' }}</dd></div><div><dt>Длительность</dt><dd>{{ bookingForm.duration }} минут</dd></div></dl>
+              <button class="button button--ink button--full" type="submit" :disabled="bookingSubmitting">{{ bookingSubmitting ? 'Проверяем время…' : 'Отправить заявку' }} <AppIcon name="arrow" :size="18" /></button>
+              <small>{{ selectedBookingSlot ? 'Преподаватель подтвердит запись вручную.' : 'Нажмите на свободный интервал и уточните время в форме.' }}</small>
             </aside>
           </form>
         </template>
@@ -600,6 +833,16 @@ onMounted(load)
               <button class="button button--ink" type="submit" :disabled="profileSaving">{{ profileSaving ? 'Сохраняем…' : 'Сохранить профиль' }}</button>
             </div>
           </form>
+          <section v-if="role === 'student'" class="profile-links-card soft-panel">
+            <div class="settings-copy"><div class="round-icon"><AppIcon name="link" :size="28" /></div><h3>Ссылки для подключения</h3><p>Используйте эти ссылки, чтобы подключиться к онлайн-занятию.</p></div>
+            <div v-if="profileLinks.length" class="profile-links-list">
+              <div v-for="item in profileLinks" :key="item.id" class="profile-link-row">
+                <strong>{{ item.title }}:</strong>
+                <a :href="item.url" target="_blank" rel="noopener noreferrer">{{ item.url }}</a>
+              </div>
+            </div>
+            <p v-else class="profile-links-empty">Преподаватель добавит ссылки для подключения в ближайшее время.</p>
+          </section>
         </template>
 
         <template v-else-if="activePage === 'availability'">
@@ -631,6 +874,22 @@ onMounted(load)
         </template>
       </div>
     </main>
+    <div v-if="bookingSlotEditorOpen" class="booking-slot-modal" role="presentation" @mousedown.self="closeBookingSlotEditor">
+      <form class="booking-slot-dialog" role="dialog" aria-modal="true" aria-labelledby="booking-slot-title" @submit.prevent="confirmBookingSlot">
+        <div class="booking-slot-dialog-head">
+          <div><p class="section-kicker">Свободный слот</p><h2 id="booking-slot-title">Уточните время занятия</h2></div>
+          <button class="icon-button" type="button" aria-label="Закрыть форму" :disabled="bookingSlotEditorSaving" @click="closeBookingSlotEditor"><AppIcon name="close" :size="18" /></button>
+        </div>
+        <p class="booking-slot-dialog-copy">Можно скорректировать начало занятия. Дата и время будут проверены по актуальному расписанию преподавателя.</p>
+        <div class="booking-slot-dialog-fields">
+          <label class="field-label">Дата<input v-model="bookingSlotForm.date" type="date" :min="formatISODate(new Date())" required /></label>
+          <label class="field-label">Время начала<input v-model="bookingSlotForm.time" type="time" step="600" required /></label>
+        </div>
+        <dl class="booking-slot-dialog-summary"><div><dt>Преподаватель</dt><dd>{{ teacherName(bookingForm.teacherId) }}</dd></div><div><dt>Длительность</dt><dd>{{ bookingForm.duration }} минут</dd></div><div><dt>Часовой пояс</dt><dd>{{ timezoneLabel }}</dd></div></dl>
+        <p class="booking-slot-dialog-note">Время начала выбирается с шагом 10 минут. Занятие должно полностью помещаться в свободный интервал.</p>
+        <div class="booking-slot-dialog-actions"><button class="button button--ghost" type="button" :disabled="bookingSlotEditorSaving" @click="closeBookingSlotEditor">Отмена</button><button class="button button--ink" type="submit" :disabled="bookingSlotEditorSaving">{{ bookingSlotEditorSaving ? 'Проверяем…' : 'Выбрать время' }}</button></div>
+      </form>
+    </div>
     <Transition name="toast"><div v-if="toast" class="toast"><AppIcon name="check" :size="18" />{{ toast }}</div></Transition>
   </div>
 </template>

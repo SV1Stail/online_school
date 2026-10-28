@@ -51,7 +51,7 @@ export const api = {
   bookings: () => request(`/bookings${period()}`),
   bookingConferenceLinks: (bookingId) => request(`/bookings/${bookingId}/conference-links`),
   availability: (teacherId, from, to) => request(`/teachers/${teacherId}/availability${explicitPeriod(from, to)}`),
-  slots: (teacherId) => request(`/teachers/${teacherId}/slots${period(0, 30)}`),
+  slots: (teacherId, from, to) => request(`/teachers/${teacherId}/slots${explicitPeriod(from, to)}`),
   createBooking: (payload) => request('/bookings', {
     method: 'POST',
     headers: { 'Idempotency-Key': crypto.randomUUID() },

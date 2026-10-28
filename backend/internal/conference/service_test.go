@@ -10,13 +10,24 @@ import (
 )
 
 type conferenceRepositoryStub struct {
-	updateCalls int
-	studentID   string
-	updateInput UpdateInput
+	listCalls           int
+	listStudentID       string
+	listIncludeInactive bool
+	listItems           []Link
+	updateCalls         int
+	studentID           string
+	updateInput         UpdateInput
 }
 
-func (s *conferenceRepositoryStub) ListForStudent(context.Context, string) ([]Link, error) {
-	panic("unexpected call")
+func (s *conferenceRepositoryStub) ListForStudent(
+	_ context.Context,
+	studentID string,
+	includeInactive bool,
+) ([]Link, error) {
+	s.listCalls++
+	s.listStudentID = studentID
+	s.listIncludeInactive = includeInactive
+	return s.listItems, nil
 }
 
 func (s *conferenceRepositoryStub) ListForBooking(context.Context, string, *user.User) ([]Link, error) {
@@ -87,4 +98,56 @@ func TestStudentCannotManageConferenceLinks(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrForbidden)
 	require.Zero(t, repository.updateCalls)
+}
+
+func TestStudentListsOwnActiveConferenceLinks(t *testing.T) {
+	t.Parallel()
+
+	repository := &conferenceRepositoryStub{listItems: []Link{{ID: "link-id", StudentID: "student-id"}}}
+	service := NewService(repository, conferenceAuditorStub{})
+
+	items, err := service.ListForStudent(
+		context.Background(),
+		&user.User{ID: "student-id", Role: user.RoleStudent},
+		"student-id",
+	)
+
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, 1, repository.listCalls)
+	require.Equal(t, "student-id", repository.listStudentID)
+	require.False(t, repository.listIncludeInactive)
+}
+
+func TestStudentCannotListAnotherStudentsConferenceLinks(t *testing.T) {
+	t.Parallel()
+
+	repository := &conferenceRepositoryStub{}
+	service := NewService(repository, conferenceAuditorStub{})
+
+	_, err := service.ListForStudent(
+		context.Background(),
+		&user.User{ID: "student-id", Role: user.RoleStudent},
+		"another-student-id",
+	)
+
+	require.ErrorIs(t, err, ErrForbidden)
+	require.Zero(t, repository.listCalls)
+}
+
+func TestTeacherListsAllStudentConferenceLinkSettings(t *testing.T) {
+	t.Parallel()
+
+	repository := &conferenceRepositoryStub{}
+	service := NewService(repository, conferenceAuditorStub{})
+
+	_, err := service.ListForStudent(
+		context.Background(),
+		&user.User{ID: "teacher-id", Role: user.RoleTeacher},
+		"student-id",
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, repository.listCalls)
+	require.True(t, repository.listIncludeInactive)
 }
