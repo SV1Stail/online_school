@@ -1,0 +1,93 @@
+version: "2"
+run:
+  tests: false
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - dogsled
+    - dupword
+    - errcheck
+    - errchkjson
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - funlen
+    - gocognit
+    - goconst
+    - gocritic
+    - godox
+    - goprintffuncname
+    - gosec
+    - govet
+    - grouper
+    - inamedparam
+    - ineffassign
+    - lll
+    - makezero
+    - misspell
+    - mnd
+    - musttag
+    - nakedret
+    - perfsprint
+    - prealloc
+    - protogetter
+    - reassign
+    - revive
+    - rowserrcheck
+    - spancheck
+    - staticcheck
+    - testifylint
+    - thelper
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - whitespace
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocognit:
+      min-complexity: 15
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - bodyclose
+          - dupword
+          - funlen
+        path: (.+)_test.go
+    paths:
+      - examples
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - git.sberdevices.ru/smart-home/backend/integrations/calls
+  exclusions:
+    generated: lax
+    paths:
+      - examples
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
